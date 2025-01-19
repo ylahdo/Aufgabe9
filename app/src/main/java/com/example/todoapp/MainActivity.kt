@@ -1,13 +1,13 @@
 package com.example.todoapp
 
-import android.content.Context
+
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,12 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -39,9 +34,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.example.todoapp.ui.theme.ToDoAppTheme
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.style.TextAlign
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -60,6 +54,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ToDoAppTheme {
                 val navController = rememberNavController()
+                val repository = TodoRepository(LocalContext.current)
 
                 NavHost(
                     navController = navController,
@@ -67,13 +62,13 @@ class MainActivity : ComponentActivity() {
                 ) {
                     composable("openTodos") {
                         OpenTodosScreen(
-                            viewModel = viewModel(factory = TodoViewModelFactory(LocalContext.current)),
+                            repository = repository,
                             onNavigateToCompleted = { navController.navigate("completedTodos") }
                         )
                     }
                     composable("completedTodos") {
                         CompletedTodosScreen(
-                            viewModel = viewModel(factory = TodoViewModelFactory(LocalContext.current)),
+                            repository = repository,
                             onNavigateBack = { navController.navigateUp() }
                         )
                     }
@@ -83,30 +78,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
-class TodoViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(TodoViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return TodoViewModel(context) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class")
-    }
-}
 /**
- * The composable function `TodolistScreen` is the main UI for the ToDo list app.
- * It displays a list of tasks and a floating action button to add new tasks.
- * It also includes logic to show a dialog when the button is clicked to enter a new task.
+ * Composable-Funktion für den Bildschirm, der offene Aufgaben anzeigt.
+ * Ermöglicht es dem Benutzer, neue Aufgaben zu erstellen, bestehende Aufgaben zu bearbeiten oder zu löschen.
+ * Zeigt eine Liste aller offenen Aufgaben aus dem Repository und bietet die Möglichkeit,
+ * zu den erledigten Aufgaben zu navigieren.
  *
- * @param modifier: Modifier to customize the layout of the screen.
- * @param viewModel: The ViewModel that manages the state of the ToDo list.
+ * @param repository Das Repository, das die To-Do-Daten verwaltet und abruft.
+ * @param onNavigateToCompleted Eine Lambda-Funktion, die aufgerufen wird, um zu den erledigten Aufgaben zu navigieren.
+ * @param modifier Ein optionaler Modifier, der auf die Composable angewendet wird.
  */
 @Composable
 fun OpenTodosScreen(
-    viewModel: TodoViewModel,
+    repository: TodoRepository,
     onNavigateToCompleted: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Zustände für Dialog und Todo-Details
     var showDialog by remember { mutableStateOf(false) }
     var todoToEdit by remember { mutableStateOf<TodoItem?>(null) }
     var todoText by remember { mutableStateOf("") }
@@ -114,13 +102,17 @@ fun OpenTodosScreen(
     var todoPriority by remember { mutableStateOf("Medium") }
     var todoDeadline by remember { mutableStateOf("") }
 
-    val todos by viewModel.todos.observeAsState(emptyList())
-    val openTodos = todos.filterNot { it.isCompleted }
+    // Holen der offenen Todos
+    val todos = remember { mutableStateOf(repository.getAllTodos()) }
+    val openTodos = todos.value.filterNot { it.isCompleted }
+
+    val context = LocalContext.current
 
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
+                    // Setzt die Werte für das Hinzufügen einer neuen Aufgabe zurück
                     todoToEdit = null
                     todoText = ""
                     todoDescription = ""
@@ -129,15 +121,16 @@ fun OpenTodosScreen(
                     showDialog = true
                 }
             ) {
-                Text("+")
+                Text("+") // Symbol für das Hinzufügen einer neuen Aufgabe
             }
         }
     ) { padding ->
         Column(
             modifier = modifier
-                .fillMaxSize()
-                .padding(padding)
+                .fillMaxSize()  // Die Composable füllt den gesamten Bildschirm
+                .padding(padding)  // Padding für die gesamte Column
         ) {
+            // Header mit Titel und Button für erledigte Aufgaben
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -147,42 +140,64 @@ fun OpenTodosScreen(
             ) {
                 Text(
                     text = "Offene Aufgaben",
-                    style = MaterialTheme.typography.titleLarge
+                    style = MaterialTheme.typography.titleLarge  // Titel im großen Stil
                 )
                 Button(onClick = onNavigateToCompleted) {
-                    Text("Erledigte Aufgaben")
+                    Text("Erledigte Aufgaben")  // Button, um zu erledigten Aufgaben zu navigieren
                 }
             }
 
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(openTodos) { todo ->
-                    TodoItemCard(
-                        item = todo,
-                        onItemClick = { viewModel.toggleCompletion(it) },
-                        onEditClick = {
-                            todoToEdit = it
-                            todoText = it.title
-                            todoDescription = it.description
-                            todoPriority = it.priority
-                            todoDeadline = it.deadline
-                            showDialog = true
-                        },
-                        onDeleteClick = { viewModel.deleteTodo(it) }
-                    )
+            // Wenn keine offenen Todos vorhanden sind
+            if (openTodos.isEmpty()) {
+                Text(
+                    text = "Keine ToDos",  // Nachricht, wenn keine offenen Aufgaben vorhanden sind
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()  // Der Text füllt die gesamte Breite
+                        .padding(16.dp),  // Padding rund um den Text
+                    textAlign = TextAlign.Center  // Text zentrieren
+                )
+            } else {
+                // Liste der offenen Todos
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(openTodos) { todo ->
+                        // Anzeige der einzelnen Aufgabenkarte
+                        TodoItemCard(
+                            item = todo,
+                            onItemClick = { repository.updateTodo(it.copy(isCompleted = !it.isCompleted))
+                                todos.value = repository.getAllTodos() },  // Aufgabe als erledigt markieren
+                            onEditClick = {
+                                // Aufgabe zum Bearbeiten laden
+                                todoToEdit = it
+                                todoText = it.title
+                                todoDescription = it.description
+                                todoPriority = it.priority
+                                todoDeadline = it.deadline
+                                showDialog = true
+                            },
+                            onDeleteClick = {
+                                repository.deleteTodo(it)
+                                todos.value = repository.getAllTodos()  // Aufgabe löschen und Liste aktualisieren
+                            }
+                        )
+                    }
                 }
             }
         }
 
+        // Dialog zur Eingabe von Aufgabeninformationen
         if (showDialog) {
             AlertDialog(
                 onDismissRequest = { showDialog = false },
                 title = { Text(if (todoToEdit == null) "Neue Aufgabe" else "Aufgabe bearbeiten") },
                 text = {
                     Column {
+                        // Eingabefelder für Titel, Beschreibung, Priorität und Deadline
                         TextField(
                             value = todoText,
                             onValueChange = { todoText = it },
@@ -212,36 +227,38 @@ fun OpenTodosScreen(
                 confirmButton = {
                     TextButton(
                         onClick = {
+                            // Validierung und Speicherung der neuen oder bearbeiteten Aufgabe
                             if (todoText.isNotBlank()) {
                                 if (todoToEdit == null) {
-                                    viewModel.addTodo(
-                                        TodoItem(
-                                            title = todoText,
-                                            description = todoDescription,
-                                            priority = todoPriority,
-                                            deadline = todoDeadline
-                                        )
+                                    val newTodo = TodoItem(
+                                        title = todoText,
+                                        description = todoDescription,
+                                        priority = todoPriority,
+                                        deadline = todoDeadline
                                     )
+                                    repository.insertTodo(newTodo)
                                 } else {
-                                    viewModel.updateTodo(
-                                        todoToEdit!!.copy(
-                                            title = todoText,
-                                            description = todoDescription,
-                                            priority = todoPriority,
-                                            deadline = todoDeadline
-                                        )
+                                    val updatedTodo = todoToEdit!!.copy(
+                                        title = todoText,
+                                        description = todoDescription,
+                                        priority = todoPriority,
+                                        deadline = todoDeadline
                                     )
+                                    repository.updateTodo(updatedTodo)
                                 }
                                 showDialog = false
+                                todos.value = repository.getAllTodos() // Liste aktualisieren
+                            } else {
+                                Toast.makeText(context, "Titel darf nicht leer sein", Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {
-                        Text("Speichern")
+                        Text("Speichern")  // Speichern-Button
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showDialog = false }) {
-                        Text("Abbrechen")
+                        Text("Abbrechen")  // Abbrechen-Button
                     }
                 }
             )
@@ -249,61 +266,99 @@ fun OpenTodosScreen(
     }
 }
 
+/**
+ * Composable-Funktion für den Bildschirm, der die erledigten Aufgaben anzeigt.
+ * Zeigt eine Liste von erledigten Aufgaben an, die aus dem Repository abgerufen werden.
+ * Ermöglicht das Zurücknavigieren zum vorherigen Bildschirm und bietet Aktionen
+ * zum Markieren von Aufgaben als unerledigt oder Löschen von Aufgaben.
+ *
+ * @param repository Das Repository, das die To-Do-Daten verwaltet und abruft.
+ * @param onNavigateBack Eine Lambda-Funktion, die beim Zurücknavigieren aufgerufen wird.
+ * @param modifier Ein optionaler Modifier, der auf die Composable angewendet wird.
+ */
 @Composable
 fun CompletedTodosScreen(
-    viewModel: TodoViewModel,
+    repository: TodoRepository,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val todos by viewModel.todos.observeAsState(emptyList())
-    val completedTodos = todos.filter { it.isCompleted }
+    // Holen der erledigten Todos
+    val todos = remember { mutableStateOf(repository.getAllTodos()) }
+    val completedTodos = todos.value.filter { it.isCompleted }
 
     Column(
         modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp)
+            .fillMaxSize()  // Die Composable füllt den gesamten Bildschirm
+            .padding(16.dp)  // Abstand zu den Rändern
     ) {
+        Spacer(modifier = Modifier.height(25.dp))  // Abstand nach oben
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()  // Die Zeile nimmt die gesamte Breite ein
+                .padding(bottom = 16.dp),  // Abstand unten
+            horizontalArrangement = Arrangement.SpaceBetween,  // Elemente links und rechts anordnen
+            verticalAlignment = Alignment.CenterVertically  // Vertikale Zentrierung
         ) {
+            // Zurück-Button, um auf den vorherigen Bildschirm zu navigieren
             IconButton(onClick = onNavigateBack) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Zurück"
-
+                    contentDescription = "Zurück"  // Beschreibung des Icons
                 )
             }
+            // Titel des Bildschirms
             Text(
                 text = "Erledigte Aufgaben",
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLarge  // Stil für den Titel
             )
         }
 
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(completedTodos) { todo ->
-                TodoItemCard(
-                    item = todo,
-                    onItemClick = { viewModel.toggleCompletion(it) },
-                    onEditClick = { /* Keine Bearbeitung für erledigte Todos */ },
-                    onDeleteClick = { viewModel.deleteTodo(it) }
-                )
+        // Wenn keine erledigten Aufgaben vorhanden sind
+        if (completedTodos.isEmpty()) {
+            Text(
+                text = "Keine erledigten Aufgaben",  // Nachricht, wenn keine erledigten Aufgaben vorhanden sind
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,  // Textfarbe
+                modifier = Modifier
+                    .fillMaxWidth()  // Der Text füllt die gesamte Breite
+                    .padding(16.dp),  // Abstand zum Rand
+                textAlign = TextAlign.Center  // Text zentrieren
+            )
+        } else {
+            // Liste der erledigten Aufgaben
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp)  // Vertikaler Abstand zwischen den Listenelementen
+            ) {
+                items(completedTodos) { todo ->
+                    // Anzeige der einzelnen Aufgabe als Karte
+                    TodoItemCard(
+                        item = todo,
+                        onItemClick = { repository.updateTodo(it.copy(isCompleted = !it.isCompleted))
+                            todos.value = repository.getAllTodos() },  // Beim Klick wird die Aufgabe als unerledigt markiert
+                        onEditClick = { },
+                        onDeleteClick = { repository.deleteTodo(it)
+                            todos.value = repository.getAllTodos() }  // Beim Löschen wird die Aufgabe entfernt
+                    )
+                }
             }
         }
     }
 }
 
+
+
 /**
- * Composable to display each ToDo item in a row with a checkbox and a delete button.
+ * Composable-Funktion, die eine To-Do-Aufgabe als Karte darstellt.
+ * Zeigt den Titel der Aufgabe, eine Checkbox für den Status und zusätzliche Details,
+ * wenn die Karte ausgeklappt wird. Ermöglicht das Bearbeiten und Löschen der Aufgabe.
  *
- * @param item: The ToDo item to be displayed.
- * @param onItemClick: A lambda function triggered when the checkbox is clicked to toggle completion status.
- * @param onDeleteClick: A lambda function triggered when the delete icon is clicked to remove the task.
+ * @param item Das To-Do-Element, das in der Karte angezeigt wird.
+ * @param onItemClick Eine Lambda-Funktion, die aufgerufen wird, wenn die Checkbox angeklickt wird,
+ * um den Status der Aufgabe zu ändern (z.B. erledigt/nicht erledigt).
+ * @param onDeleteClick Eine Lambda-Funktion, die aufgerufen wird, wenn das Löschen-Symbol angeklickt wird,
+ * um die Aufgabe zu löschen.
+ * @param onEditClick Eine Lambda-Funktion, die aufgerufen wird, wenn die Aufgabe lang gedrückt wird,
+ * um sie zu bearbeiten.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -313,38 +368,43 @@ fun TodoItemCard(
     onDeleteClick: (TodoItem) -> Unit,
     onEditClick: (TodoItem) -> Unit
 ) {
+    // Zustandsvariable für das Erweitern/Reduzieren der Anzeige von Details
     var expanded by remember { mutableStateOf(false) }
 
+    // Karte für das To-Do-Element
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp)
+            .fillMaxWidth()  // Karte nimmt die volle Breite ein
+            .padding(8.dp)   // Abstand zur Umrandung der Karte
             .combinedClickable(
-                onClick = { expanded = !expanded },
-                onLongClick = { onEditClick(item) }
+                onClick = { expanded = !expanded },  // Umklappen der Karte bei einfachem Klick
+                onLongClick = { onEditClick(item) }  // Bearbeitungsmodus bei langem Klick
             ),
-        elevation = CardDefaults.cardElevation(4.dp)
+        elevation = CardDefaults.cardElevation(4.dp)  // Kartenelevation für Schatteneffekt
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header - Always visible
+
+            // Zeile für den Titel und das Status-Checkbox
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.SpaceBetween,  // Elemente links und rechts anordnen
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)  // Abstand zwischen Checkbox und Titel
                 ) {
+                    // Checkbox für den erledigt-Status
                     Checkbox(
                         checked = item.isCompleted,
-                        onCheckedChange = { onItemClick(item) }
+                        onCheckedChange = { onItemClick(item) }  // Status ändern bei Klick
                     )
                     Text(
                         text = item.title,
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium  // Stil für den Titel
                     )
                 }
+                // Pfeilsymbol für das Auf- oder Zuklappen der Details
                 IconButton(onClick = { expanded = !expanded }) {
                     Icon(
                         imageVector = if (expanded) Icons.Default.KeyboardArrowUp
@@ -354,88 +414,90 @@ fun TodoItemCard(
                 }
             }
 
-            // Expandable content
+            // Erweiterter Bereich, der angezeigt wird, wenn die Karte aufgeklappt ist
             AnimatedVisibility(visible = expanded) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp)
+                        .padding(top = 8.dp)  // Abstand zum oberen Rand
                 ) {
-                    // Description
+                    // Beschreibung der Aufgabe, wenn vorhanden
                     if (item.description.isNotBlank()) {
                         Text(
                             text = "Beschreibung:",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary  // Primärfarbe für den Titel
                         )
                         Text(
                             text = item.description,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
+                            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)  // Abstand zur linken Seite und unten
                         )
                     }
 
-                    // Priority
+                    // Zeigt die Priorität der Aufgabe
                     Row(
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        modifier = Modifier.padding(vertical = 4.dp)  // Vertikaler Abstand
                     ) {
                         Text(
                             text = "Priorität: ",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary  // Primärfarbe für das Label
                         )
                         Text(
                             text = item.priority,
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium  // Stil für den Text
                         )
                     }
 
-                    // Deadline
+                    // Zeigt die Deadline der Aufgabe, wenn vorhanden
                     if (item.deadline.isNotBlank()) {
                         Row(
-                            modifier = Modifier.padding(vertical = 4.dp)
+                            modifier = Modifier.padding(vertical = 4.dp)  // Vertikaler Abstand
                         ) {
                             Text(
                                 text = "Deadline: ",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary  // Primärfarbe für das Label
                             )
                             Text(
                                 text = item.deadline,
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium  // Stil für den Text
                             )
                         }
                     }
 
-                    // Action buttons
+                    // Aktionstasten für Bearbeiten und Löschen
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.End
+                            .padding(top = 8.dp),  // Abstand zum oberen Rand
+                        horizontalArrangement = Arrangement.End  // Anordnung der Symbole am rechten Rand
                     ) {
+                        // Bearbeiten-Symbol
                         IconButton(onClick = { onEditClick(item) }) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
-                                contentDescription = "Bearbeiten",
-                                tint = MaterialTheme.colorScheme.primary
+                                contentDescription = "Bearbeiten",  // Beschreibung des Symbols
+                                tint = MaterialTheme.colorScheme.primary  // Primärfarbe für das Symbol
                             )
                         }
+                        // Löschen-Symbol
                         IconButton(onClick = { onDeleteClick(item) }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
-                                contentDescription = "Löschen",
-                                tint = Color.Red
+                                contentDescription = "Löschen",  // Beschreibung des Symbols
+                                tint = Color.Red  // Rote Farbe für das Löschen-Symbol
                             )
                         }
                     }
 
-                    // Hint text
+                    // Hinweistext für Benutzer, dass langes Drücken zum Bearbeiten führt
                     Text(
                         text = "Lang drücken zum Bearbeiten",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.End)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,  // Farbton für den Text
+                        modifier = Modifier.align(Alignment.End)  // Text am rechten Rand ausrichten
                     )
                 }
             }
@@ -443,47 +505,4 @@ fun TodoItemCard(
     }
 }
 
-
-class TodoViewModel(context: Context) : ViewModel() {
-    private val repository = TodoRepository(context)
-
-    // LiveData, um die ToDo-Liste für die UI zu beobachten
-    private val _todos = MutableLiveData<List<TodoItem>>()
-    val todos: LiveData<List<TodoItem>> get() = _todos
-
-    init {
-        loadTodos() // Beim Initialisieren des ViewModels ToDos laden
-    }
-
-    // Lädt alle ToDos aus der Datenbank
-    private fun loadTodos() {
-        _todos.value = repository.getAllTodos().toList()
-    }
-
-    // Fügt ein neues ToDo hinzu
-    fun addTodo(todo: TodoItem) {
-
-        repository.insertTodo(todo) // Hinzufügen zur Datenbank
-        loadTodos() // Aktualisieren der Liste
-    }
-
-    // Aktualisiert ein bestehendes ToDo
-    fun updateTodo(todo: TodoItem) {
-        repository.updateTodo(todo) // Aktualisieren in der Datenbank
-        loadTodos() // Aktualisieren der Liste
-    }
-
-    // Löscht ein ToDo
-    fun deleteTodo(todo: TodoItem) {
-        repository.deleteTodo(todo) // Löschen aus der Datenbank
-        loadTodos() // Aktualisieren der Liste
-    }
-
-    // Wechselt den Status eines ToDo-Elements (erledigt/nicht erledigt)
-    fun toggleCompletion(todo: TodoItem) {
-        val updatedTodo = todo.copy(isCompleted = !todo.isCompleted)
-        repository.updateTodo(updatedTodo)
-        loadTodos()
-    }
-}
 
