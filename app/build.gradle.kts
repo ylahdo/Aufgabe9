@@ -53,6 +53,8 @@ dependencies {
     // Jetpack Compose
     implementation ("androidx.compose.ui:ui:1.5.0") // Ersetze ggf. durch die richtige Version
     implementation ("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.0")
+    implementation("androidx.compose.material:material-icons-extended:<version>")
+
 
     implementation(libs.androidx.navigation.runtime.ktx)
     implementation(libs.androidx.navigation.compose)
